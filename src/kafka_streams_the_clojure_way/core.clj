@@ -53,8 +53,9 @@
 
 ;; Part 1 - Simple Topology
 
-(defn make-purchase! [amount]
+(defn make-purchase!
   "Publish a message to the purchase-made topic, with the specified amount"
+  [amount]
   (let [purchase-id (rand-int 10000)
         user-id     (rand-int 10000)
         quantity    (inc (rand-int 10))]
@@ -64,8 +65,9 @@
                                                               :user-id user-id
                                                               :quantity quantity}))))
 
-(defn view-messages [topic]
+(defn view-messages
   "View the messages on the given topic"
+  [topic]
   (with-open [consumer (jc/subscribed-consumer (assoc kafka-config "group.id" (str (java.util.UUID/randomUUID)))
                                                [topic])]
     (jc/seek-to-beginning-eager consumer)
@@ -83,15 +85,17 @@
       (js/to large-transaction-made-topic)))
 
 
-(defn start! []
+(defn start!
   "Starts the simple topology"
+  []
   (let [builder (js/streams-builder)]
     (simple-topology builder)
     (doto (js/kafka-streams builder kafka-config)
       (js/start))))
 
-(defn stop! [kafka-streams-app]
+(defn stop!
   "Stops the given KafkaStreams application"
+  [kafka-streams-app]
   (js/close kafka-streams-app))
 
 
@@ -117,8 +121,9 @@
            [key {:user-id (:user-id donation)
                  :amount (int (/ (:donation-amount-cents donation) 100))}]))))
 
-(defn make-humble-donation! [amount-cents]
+(defn make-humble-donation!
   "Publishes a message to humble-donation-made, with the specified amount"
+  [amount-cents]
   (let [user-id (rand-int 10000)
         id      (rand-int 1000)]
     (with-open [producer (jc/producer kafka-config serdes)]
@@ -164,7 +169,8 @@
 
 
   ;; create the "purchase-made" and "large-transaction-made" topics
-  (ja/create-topics! admin-client [purchase-made-topic large-transaction-made-topic])
+  (ja/create-topics! admin-client [purchase-made-topic
+                                   large-transaction-made-topic])
 
 
   ;; Make a few dummy purchases
@@ -183,6 +189,12 @@
   ;; You should see 2 messages on the large-transaction-made-topic topic
   (view-messages large-transaction-made-topic)
 
+  (make-purchase! 1500)
+  (make-purchase! 800)
+  (make-purchase! 3)
+
+  (make-purchase!)
+
   ;; Stop the topology
   (stop! kafka-streams-app)
 
@@ -194,7 +206,10 @@
   (into []
         purchase-made-transducer
         [[1 {:purchase-id 1 :user-id 2 :amount 10 :quantity 1}]
-         [3 {:purchase-id 3 :user-id 4 :amount 500 :quantity 100}]])
+         [3 {:purchase-id 3 :user-id 4 :amount 500 :quantity 100}]
+         [23 {:purchase-id 23 :user-id 4 :amount 5000 :quantity 100}]])
+
+
 
 
   ;; Part 3 - Willa
@@ -236,6 +251,10 @@
   ;; Visualise experiment result
   (wv/view-topology experiment-results)
 
+  (we/results-only experiment-results)
+
+  (we/results-only experiment-results)
+
   ;; View results as data
   (->> experiment-results
        :entities
@@ -249,5 +268,8 @@
   ;; Check that the spec validation will catch an invalid topology
   (s/explain ::ws/topology
              ;; introduce a loop in our workflow
-             (update topology :workflow conj [:topic/large-transaction-made :topic/purchase-made]))
-  )
+             (update topology :workflow conj
+               [:topic/large-transaction-made :topic/purchase-made]))
+
+  ())
+
