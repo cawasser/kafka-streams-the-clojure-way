@@ -2,9 +2,23 @@
 
 A Clojure library designed to ... well, that part is up to you.
 
+Based upon [this article](https://medium.com/funding-circle/kafka-streams-the-clojure-way-d62f6cefaba1)
 ## Usage
 
-FIXME
+First run:
+
+On Linux
+    docker run --rm --net=host landoop/fast-data-dev
+
+On Mac
+    docker run --rm -p 2181:2181 -p 3030:3030 -p 8081-8083:8081-8083 -p 9581-9585:9581-9585 -p 9092:9092 -e ADV_HOST=localhost landoop/fast-data-dev:latest
+
+
+Then connect to an nREPL using "Run with Leiningen"
+
+You can look at the Kafka Console by opening a browser at:
+
+    http://localhost:3030/kafka-topics-ui/#/cluster/fast-data-dev/topic/n/purchase-made/
 
 ## License
 

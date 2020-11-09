@@ -11,6 +11,9 @@
             [willa.specs :as ws]
             [clojure.spec.alpha :as s]))
 
+
+;; see https://medium.com/funding-circle/kafka-streams-the-clojure-way-d62f6cefaba1
+
 ;; The config for our Kafka Streams app
 (def kafka-config
   {"application.id" "kafka-streams-the-clojure-way"
@@ -193,7 +196,7 @@
   (make-purchase! 800)
   (make-purchase! 3)
 
-  (make-purchase!)
+  (make-purchase! 750)
 
   ;; Stop the topology
   (stop! kafka-streams-app)
