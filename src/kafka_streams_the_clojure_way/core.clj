@@ -14,41 +14,49 @@
 
 ;; see https://medium.com/funding-circle/kafka-streams-the-clojure-way-d62f6cefaba1
 
+;; start kafka using one of the following:
+
+; On Linux or Windows(?)
+; docker run --rm --net=host landoop/fast-data-dev
+
+; On Mac
+; docker run --rm -p 2181:2181 -p 3030:3030 -p 8081-8083:8081-8083 -p 9581-9585:9581-9585 -p 9092:9092 -e ADV_HOST=localhost landoop/fast-data-dev:latest
+
 ;; The config for our Kafka Streams app
 (def kafka-config
-  {"application.id" "kafka-streams-the-clojure-way"
-   "bootstrap.servers" "localhost:9092"
-   "default.key.serde" "jackdaw.serdes.EdnSerde"
-   "default.value.serde" "jackdaw.serdes.EdnSerde"
+  {"application.id"            "kafka-streams-the-clojure-way"
+   "bootstrap.servers"         "localhost:9092"
+   "default.key.serde"         "jackdaw.serdes.EdnSerde"
+   "default.value.serde"       "jackdaw.serdes.EdnSerde"
    "cache.max.bytes.buffering" "0"})
 
 ;; Serdes tell Kafka how to serialize/deserialize messages
 ;; We'll just keep them as EDN
 (def serdes
-  {:key-serde (serde)
+  {:key-serde   (serde)
    :value-serde (serde)})
 
 ;; Each topic needs a config. The important part to note is the :topic-name key.
 (def purchase-made-topic
-  (merge {:topic-name "purchase-made"
-          :partition-count 1
+  (merge {:topic-name         "purchase-made"
+          :partition-count    1
           :replication-factor 1
-          :topic-config {}}
-         serdes))
+          :topic-config       {}}
+    serdes))
 
 (def humble-donation-made-topic
-  (merge {:topic-name "humble-donation-made"
-          :partition-count 1
+  (merge {:topic-name         "humble-donation-made"
+          :partition-count    1
           :replication-factor 1
-          :topic-config {}}
-         serdes))
+          :topic-config       {}}
+    serdes))
 
 (def large-transaction-made-topic
-  (merge {:topic-name "large-transaction-made"
-          :partition-count 1
+  (merge {:topic-name         "large-transaction-made"
+          :partition-count    1
           :replication-factor 1
-          :topic-config {}}
-         serdes))
+          :topic-config       {}}
+    serdes))
 
 ;; An admin client is needed to do things like create and delete topics
 (def admin-client (ja/->AdminClient kafka-config))
@@ -63,29 +71,29 @@
         user-id     (rand-int 10000)
         quantity    (inc (rand-int 10))]
     (with-open [producer (jc/producer kafka-config serdes)]
-      @(jc/produce! producer purchase-made-topic purchase-id {:id purchase-id
-                                                              :amount amount
-                                                              :user-id user-id
+      @(jc/produce! producer purchase-made-topic purchase-id {:id       purchase-id
+                                                              :amount   amount
+                                                              :user-id  user-id
                                                               :quantity quantity}))))
 
 (defn view-messages
   "View the messages on the given topic"
   [topic]
   (with-open [consumer (jc/subscribed-consumer (assoc kafka-config "group.id" (str (java.util.UUID/randomUUID)))
-                                               [topic])]
+                         [topic])]
     (jc/seek-to-beginning-eager consumer)
     (->> (jcl/log-until-inactivity consumer 100)
-         (map :value)
-         doall)))
+      (map :value)
+      doall)))
 
 
 (defn simple-topology [builder]
   (-> (js/kstream builder purchase-made-topic)
-      (js/filter (fn [[_ purchase]]
-                   (<= 100 (:amount purchase))))
-      (js/map (fn [[key purchase]]
-                [key (select-keys purchase [:amount :user-id])]))
-      (js/to large-transaction-made-topic)))
+    (js/filter (fn [[_ purchase]]
+                 (<= 100 (:amount purchase))))
+    (js/map (fn [[key purchase]]
+              [key (select-keys purchase [:amount :user-id])]))
+    (js/to large-transaction-made-topic)))
 
 
 (defn start!
@@ -113,16 +121,16 @@
 
 (defn simple-topology-with-transducer [builder]
   (-> (js/kstream builder purchase-made-topic)
-      (transduce-stream purchase-made-transducer)
-      (js/to large-transaction-made-topic)))
+    (transduce-stream purchase-made-transducer)
+    (js/to large-transaction-made-topic)))
 
 (def humble-donation-made-transducer
   (comp
     (filter (fn [[_ donation]]
-              (<= 10000 (:donation-amount-cents donation))))
+              (<= 10000 (:donation-amount-cents donation))),,,,)
     (map (fn [[key donation]]
            [key {:user-id (:user-id donation)
-                 :amount (int (/ (:donation-amount-cents donation) 100))}]))))
+                 :amount  (int (/ (:donation-amount-cents donation) 100))}]))))
 
 (defn make-humble-donation!
   "Publishes a message to humble-donation-made, with the specified amount"
@@ -131,28 +139,28 @@
         id      (rand-int 1000)]
     (with-open [producer (jc/producer kafka-config serdes)]
       @(jc/produce! producer humble-donation-made-topic id {:donation-amount-cents amount-cents
-                                                            :user-id user-id
-                                                            :donation-date "2019-01-01"}))))
+                                                            :user-id               user-id
+                                                            :donation-date         "2019-01-01"}))))
 
 (defn more-complicated-topology [builder]
   (js/merge
     (-> (js/kstream builder purchase-made-topic)
-        (transduce-stream purchase-made-transducer))
-    (-> (js/kstream builder humble-donation-made-transducer)
-        (transduce-stream humble-donation-made-transducer))))
+      (transduce-stream purchase-made-transducer))
+    (-> (js/kstream builder humble-donation-made-topic)
+      (transduce-stream humble-donation-made-transducer))))
 
 
 ;; Part 3 - Willa
 
 (def entities
-  {:topic/purchase-made (assoc purchase-made-topic ::w/entity-type :topic)
-   :topic/humble-donation-made (assoc humble-donation-made-topic ::w/entity-type :topic)
+  {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
+   :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
    :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
 
-   :stream/large-purchase-made {::w/entity-type :kstream
-                                ::w/xform purchase-made-transducer}
-   :stream/large-donation-made {::w/entity-type :kstream
-                                ::w/xform humble-donation-made-transducer}})
+   :stream/large-purchase-made   {::w/entity-type :kstream
+                                  ::w/xform       purchase-made-transducer}
+   :stream/large-donation-made   {::w/entity-type :kstream
+                                  ::w/xform       humble-donation-made-transducer}})
 
 (def workflow
   [[:topic/purchase-made :stream/large-purchase-made]
@@ -207,10 +215,18 @@
 
   ;; Check that the purchase-made-transducer works as expected
   (into []
-        purchase-made-transducer
-        [[1 {:purchase-id 1 :user-id 2 :amount 10 :quantity 1}]
-         [3 {:purchase-id 3 :user-id 4 :amount 500 :quantity 100}]
-         [23 {:purchase-id 23 :user-id 4 :amount 5000 :quantity 100}]])
+    purchase-made-transducer
+    [[1 {:purchase-id 1 :user-id 2 :amount 10 :quantity 1}]
+     [3 {:purchase-id 3 :user-id 4 :amount 500 :quantity 100}]
+     [9 {:purchase-id 9 :user-id 4 :amount 5100 :quantity 100}]
+     [23 {:purchase-id 23 :user-id 4 :amount 5000 :quantity 100}]])
+
+  (into []
+    humble-donation-made-transducer
+    [[1 {:purchase-id 1 :user-id 2 :donation-amount-cents 10 :quantity 1}]
+     [3 {:purchase-id 3 :user-id 4 :donation-amount-cents 5000 :quantity 100}]
+     [9 {:purchase-id 9 :user-id 4 :donation-amount-cents 51000 :quantity 100}]
+     [23 {:purchase-id 23 :user-id 4 :donation-amount-cents 50000 :quantity 100}]])
 
 
 
@@ -233,6 +249,7 @@
 
   ;; Publish a couple of messages to the input topics
   (make-purchase! 200)
+  (make-humble-donation! 5000)
   (make-humble-donation! 15000)
 
   ;; Check that messages appear on the large-transaction-made output topics
@@ -240,16 +257,17 @@
 
   ;; Run an experiment
   (def experiment-results
-    (we/run-experiment topology
-                       {:topic/purchase-made [{:key 1
-                                               :value {:id 1
-                                                       :amount 200
-                                                       :user-id 1234
-                                                       :quantity 100}}]
-                        :topic/humble-donation-made [{:key 2
-                                                      :value {:user-id 2345
-                                                              :donation-amount-cents 15000
-                                                              :donation-date "2019-01-02"}}]}))
+    (we/run-experiment
+      topology
+      {:topic/purchase-made        [{:key   1
+                                     :value {:id       1
+                                             :amount   200
+                                             :user-id  1234
+                                             :quantity 100}}]
+       :topic/humble-donation-made [{:key   2
+                                     :value {:user-id               2345
+                                             :donation-amount-cents 15000
+                                             :donation-date         "2019-01-02"}}]}))
 
   ;; Visualise experiment result
   (wv/view-topology experiment-results)
@@ -260,19 +278,19 @@
 
   ;; View results as data
   (->> experiment-results
-       :entities
-       (map (fn [[k v]]
-              [k (::we/output v)]))
-       (into {}))
+    :entities
+    (map (fn [[k v]]
+           [k (::we/output v)]))
+    (into {}))
 
   ;; Validate topology
   (s/explain ::ws/topology topology)
 
   ;; Check that the spec validation will catch an invalid topology
   (s/explain ::ws/topology
-             ;; introduce a loop in our workflow
-             (update topology :workflow conj
-               [:topic/large-transaction-made :topic/purchase-made]))
+    ;; introduce a loop in our workflow
+    (update topology :workflow conj
+      [:topic/large-transaction-made :topic/purchase-made]))
 
   ())
 
