@@ -86,7 +86,6 @@
       (map :value)
       doall)))
 
-
 (defn simple-topology [builder]
   (-> (js/kstream builder purchase-made-topic)
     (js/filter (fn [[_ purchase]]
@@ -94,7 +93,6 @@
     (js/map (fn [[key purchase]]
               [key (select-keys purchase [:amount :user-id])]))
     (js/to large-transaction-made-topic)))
-
 
 (defn start!
   "Starts the simple topology"
