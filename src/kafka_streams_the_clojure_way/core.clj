@@ -176,7 +176,7 @@
 
 (comment
 
-  ;; Part 1 - Simple Topology
+  ;; region Part 1 - Simple Topology
 
 
   ;; create the "purchase-made" and "large-transaction-made" topics
@@ -208,9 +208,9 @@
 
   ;; Stop the topology
   (stop! kafka-streams-app)
+  ;; endregion
 
-
-  ;; Part 2 - Transducers
+  ;; region Part 2 - Transducers
 
 
   ;; Check that the purchase-made-transducer works as expected
@@ -228,10 +228,9 @@
      [9 {:purchase-id 9 :user-id 4 :donation-amount-cents 51000 :quantity 100}]
      [23 {:purchase-id 23 :user-id 4 :donation-amount-cents 50000 :quantity 100}]])
 
+  ;; endregion
 
-
-
-  ;; Part 3 - Willa
+  ;; region Part 3 - Willa
 
 
   ;; Visualise the topology
@@ -291,6 +290,8 @@
     ;; introduce a loop in our workflow
     (update topology :workflow conj
       [:topic/large-transaction-made :topic/purchase-made]))
+
+  ;; endregion
 
   ())
 
