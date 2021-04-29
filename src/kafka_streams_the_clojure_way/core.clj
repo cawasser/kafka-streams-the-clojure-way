@@ -14,6 +14,11 @@
 
 ;; see https://medium.com/funding-circle/kafka-streams-the-clojure-way-d62f6cefaba1
 
+;; see also https://github.com/DaveWM/kafka-streams-the-clojure-way
+
+;; see also https://github.com/DaveWM/willa
+
+
 ;; start kafka using one of the following:
 
 ; On Linux or Windows(?)
@@ -21,6 +26,20 @@
 
 ; On Mac
 ; docker run --rm -p 2181:2181 -p 3030:3030 -p 8081-8083:8081-8083 -p 9581-9585:9581-9585 -p 9092:9092 -e ADV_HOST=localhost landoop/fast-data-dev:latest
+
+
+;;;;;;;
+;;; OR
+;
+; if you have cloned cp-docker-images, you can also
+;
+; cd cp-docker-images/examples/kafka-single-node
+; docker-compose up -d
+;     (or leave off the -d if you want to see the logs,
+;       AND have the ability to 'ctrl-C' to stop Kafka and Zookeeper,
+;           instead if leaving them running inside Docker)
+;
+
 
 ;; The config for our Kafka Streams app
 (def kafka-config
@@ -155,9 +174,9 @@
    :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
    :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
 
-   :stream/large-purchase-made   {::w/entity-type :kstream
+   :stream/large-purchase-made   {::w/entity-type :kstream-channel
                                   ::w/xform       purchase-made-transducer}
-   :stream/large-donation-made   {::w/entity-type :kstream
+   :stream/large-donation-made   {::w/entity-type :kstream-channel
                                   ::w/xform       humble-donation-made-transducer}})
 
 (def workflow
@@ -167,8 +186,21 @@
    [:stream/large-donation-made :topic/large-transaction-made]])
 
 (def topology
-  {:workflow workflow
-   :entities entities})
+  {:entities {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
+              :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
+              :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
+
+              :stream/large-purchase-made   {::w/entity-type :kstream-channel
+                                             ::w/xform       purchase-made-transducer}
+              :stream/large-donation-made   {::w/entity-type :kstream-channel
+                                             ::w/xform       humble-donation-made-transducer}}
+
+   :workflow [[:topic/purchase-made :stream/large-purchase-made]
+              [:topic/humble-donation-made :stream/large-donation-made]
+              [:stream/large-purchase-made :topic/large-transaction-made]
+              [:stream/large-donation-made :topic/large-transaction-made]]
+
+   :joins    {}})
 
 
 
@@ -194,6 +226,8 @@
 
   ;; Start the topology
   (def kafka-streams-app (start!))
+
+  (view-messages purchase-made-topic)
 
   ;; You should see 2 messages on the large-transaction-made-topic topic
   (view-messages large-transaction-made-topic)
@@ -234,6 +268,29 @@
   ;; Visualise the topology
   (wv/view-topology topology)
 
+  (def topology
+    {:entities {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
+                :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
+                :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
+                :topic/other-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
+
+                :stream/large-purchase-made   {::w/entity-type :kstream-channel
+                                               ::w/xform       purchase-made-transducer}
+                :stream/large-donation-made   {::w/entity-type :kstream-channel
+                                               ::w/xform       humble-donation-made-transducer}}
+
+     :workflow [[:topic/purchase-made :stream/large-purchase-made]
+                [:topic/purchase-made :stream/large-donation-made]
+                [:stream/large-purchase-made :topic/large-transaction-made]
+                [:stream/large-donation-made :topic/other-transaction-made]]
+
+     :joins    {}})
+
+
+
+
+
+
   ;; Start topology
   (let [builder (js/streams-builder)]
     (w/build-topology! builder topology)
@@ -251,6 +308,8 @@
 
   ;; Check that messages appear on the large-transaction-made output topics
   (view-messages large-transaction-made-topic)
+
+  (view-messages humble-donation-made-topic)
 
   ;; Run an experiment
   (def experiment-results
@@ -289,7 +348,165 @@
     (update topology :workflow conj
       [:topic/large-transaction-made :topic/purchase-made]))
 
+  (wv/view-topology (update topology :workflow conj
+                      [:topic/large-transaction-made :topic/purchase-made]))
+
   ;; endregion
+
+  (ja/delete-topics! admin-client [purchase-made-topic
+                                   large-transaction-made-topic])
+  ())
+
+(comment
+  (def a {:flight "UA1496"})
+  (def b [{:event-type          :departed
+           :time                #inst "2019-03-16T00:00:00.000-00:00"
+           :flight              "UA1496a"
+           :scheduled-departure #inst "2019-03-15T00:00:00.000-00:00"}
+          {:event-type          :departed
+           :time                #inst "2019-03-16T00:00:00.000-00:00"
+           :flight              "UA1496a"
+           :scheduled-departure #inst "2019-03-15T00:00:00.000-00:00"}])
+  (def pk [:flight :something-new])
+
+  ((juxt :flight) b)
+  ((juxt :a :b) {:a 1 :b 2 :c 3 :d 4})
+
+  ((apply juxt pk) b)
+  (merge b a)
+
+  (map #(let [[k v] [nil %]
+              n (assoc v :something-new 100)]
+          [(zipmap pk ((apply juxt pk) n)) n])
+    b)
+
+
+
 
   ())
 
+
+
+; some join concepts
+(comment
+  (def message-1 [{:key "a" :event :add} {:content "one"}])
+  (def message-2 [{:key "a" :event :add} {:content "two"}])
+  (def message-3 [{:key "a" :event :add} {:content "three"}])
+  (def message-4 [{:key "a" :event :remove} {:content "two"}])
+
+
+  (def messages [[{:key "a" :event :add} {:content "one"}]
+                 [{:key "a" :event :add} {:content "two"}]
+                 [{:key "b" :event :add} {:content "three"}]
+                 [{:key "b" :event :add} {:content "one"}]
+                 [{:key "a" :event :remove} {:content "one"}]])
+
+  (def starting-point #{})
+
+  (map (fn [[kx cx]]
+         (condp = (:event kx)
+           :add (conj starting-point (:content cx))
+           :remove (disj starting-point (:content cx))))
+         
+    [message-1 message-2 message-3 message-4])
+
+  (reduce (fn [accum [kx cx]]
+            (condp = (:event kx)
+              :add (conj accum (:content cx))
+              :remove (disj accum (:content cx))))
+    #{} [message-1 message-2 message-3 message-4])
+
+  (->> [message-1 message-2 message-3 message-4]
+    (reduce (fn [accum [kx cx]]
+              (condp = (:event kx)
+                :add (conj accum (:content cx))
+                :remove (disj accum (:content cx))))
+      #{}))
+
+
+  (reduce (fn [accum [kx cx]]
+            (condp = (:event kx)
+              :add (conj accum (:content cx))
+              :remove (disj accum (:content cx))))
+    #{})
+
+  (def x (->> messages
+           (group-by (fn [[k v]] (:key k)))
+           first))
+  (map (fn [[k v]] k) x)
+  (class x)
+
+  (map (fn [[k v]] (str k " -> " v))
+    (->> messages
+      (group-by (fn [[k v]] (:key k)))))
+
+  (def y {"a"
+          [[{:key "a", :event :add} {:content "one"}]
+           [{:key "a", :event :add} {:content "two"}]
+           [{:key "a", :event :remove} {:content "one"}]]})
+  (class y)
+
+  (->> messages
+    (group-by (fn [[k v]] (:key k)))
+    (map (fn [[k v]]
+           (str k " -> " v))))
+
+
+  (->> messages
+    (group-by (fn [[k v]] (:key k)))
+    (map (fn [k]
+           (map (fn [m]
+                  (str k " -> " m))
+             k))))
+
+  (->> messages
+    (group-by (fn [[k v]] (:key k)))
+    (map (fn [k]
+           (map (fn [m]
+                  (reduce (fn [accum [kx cx]]
+                            (condp = (:event kx)
+                              :add (conj accum (:content cx))
+                              :remove (disj accum (:content cx))))
+                    #{} m))
+             k))))
+
+
+  ; join by merging :content
+  (defn combine-messages [[kx cx] [ky cy]]
+    [kx (concat (:content cx) (:content cy))])
+
+  (combine-messages message-1 message-2)
+
+  ())
+
+
+
+(comment
+
+  (defn req->open-request-ktable [req-events-stream]
+    (-> req-events-stream
+      (j/filter (fn [[k v]]
+                  (#{:request-added :request-deleted :request-updated :request-commited} (:event-type v))))
+      (j/group-by-key) ; key is requester's ID
+      (j/aggregate (constantly #{})
+        (fn [open-requests [_ event]]
+          (cond-> open-requests
+            (= :request-added (:event-type event)) (add-requester event)
+            (= :request-updated (:event-type event)) (update-requester event)
+            (= :request-deleted (:event-type event)) (remove-requester event)
+            (= :request-commited (:event-type event)) (remove-requester event)))
+        (topic-config "open-requests"))))
+
+
+  (defn get-open-requests [streams]
+    (-> streams
+        (.store "open-requests" (QueryableStoreTypes/keyValueStore))))
+
+
+  (defn get-open-requests-by-id [streams id]
+    (-> streams
+      (.store "open-requests" (QueryableStoreTypes/keyValueStore))
+      (.get {:requester id})))
+
+
+  ())
