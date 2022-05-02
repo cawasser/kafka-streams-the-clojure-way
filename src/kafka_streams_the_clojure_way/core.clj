@@ -81,7 +81,7 @@
 (def admin-client (ja/->AdminClient kafka-config))
 
 
-;; Part 1 - Simple Topology
+;; region Part 1 - Simple Topology
 
 (defn make-purchase!
   "Publish a message to the purchase-made topic, with the specified amount"
@@ -126,10 +126,18 @@
   [kafka-streams-app]
   (js/close kafka-streams-app))
 
+;; endregion
 
-;; Part 2 - Transducers
+;; region Part 2 - Transducers
 
 (def purchase-made-transducer
+
+  ; from (simple-topology ...)
+  ;(js/filter (fn [[_ purchase]]
+  ;             (<= 100 (:amount purchase))))
+  ;(js/map (fn [[key purchase]]
+  ;          [key (select-keys purchase [:amount :user-id])]))
+
   (comp
     (filter (fn [[_ purchase]]
               (<= 100 (:amount purchase))))
@@ -165,27 +173,43 @@
       (transduce-stream purchase-made-transducer))
     (-> (js/kstream builder humble-donation-made-topic)
       (transduce-stream humble-donation-made-transducer))))
+;; endregion
 
+;; region Part 3 - Willa
 
-;; Part 3 - Willa
-
+; a simple example (matches "simple-topology" but using purchase-made-transducer
 (def entities
+  {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
+   :stream/large-purchase-made   {::w/entity-type :kstream
+                                  ::w/xform       purchase-made-transducer}
+   :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)})
+
+(def workflow
+  [[:topic/purchase-made :stream/large-purchase-made]
+   [:stream/large-purchase-made :topic/large-transaction-made]])
+
+
+(def topology {:entities entities
+               :workflow workflow})
+
+; slightly more complex
+(def entities-2
   {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
    :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
    :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
 
-   :stream/large-purchase-made   {::w/entity-type :kstream-channel
+   :stream/large-purchase-made   {::w/entity-type :kstream
                                   ::w/xform       purchase-made-transducer}
-   :stream/large-donation-made   {::w/entity-type :kstream-channel
+   :stream/large-donation-made   {::w/entity-type :kstream
                                   ::w/xform       humble-donation-made-transducer}})
 
-(def workflow
+(def workflow-2
   [[:topic/purchase-made :stream/large-purchase-made]
    [:topic/humble-donation-made :stream/large-donation-made]
    [:stream/large-purchase-made :topic/large-transaction-made]
    [:stream/large-donation-made :topic/large-transaction-made]])
 
-(def topology
+(def topology-2
   {:entities {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
               :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
               :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
@@ -202,6 +226,7 @@
 
    :joins    {}})
 
+;; endregion
 
 
 (comment
@@ -268,34 +293,25 @@
   ;; Visualise the topology
   (wv/view-topology topology)
 
-  (def topology
-    {:entities {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
-                :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
-                :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
-                :topic/other-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
-
-                :stream/large-purchase-made   {::w/entity-type :kstream-channel
-                                               ::w/xform       purchase-made-transducer}
-                :stream/large-donation-made   {::w/entity-type :kstream-channel
-                                               ::w/xform       humble-donation-made-transducer}}
-
-     :workflow [[:topic/purchase-made :stream/large-purchase-made]
-                [:topic/purchase-made :stream/large-donation-made]
-                [:stream/large-purchase-made :topic/large-transaction-made]
-                [:stream/large-donation-made :topic/other-transaction-made]]
-
-     :joins    {}})
-
-
-
-
-
-
   ;; Start topology
-  (let [builder (js/streams-builder)]
-    (w/build-topology! builder topology)
-    (js/start (js/kafka-streams builder kafka-config)))
+  (def kafka-streams-app
+    (let [builder (js/streams-builder)]
+      (w/build-topology! builder topology)
+      (js/start (js/kafka-streams builder kafka-config))))
 
+
+  (make-purchase! 500)
+  (make-purchase! 50)
+  (make-purchase! 1000)
+
+  (view-messages purchase-made-topic)
+  (view-messages large-transaction-made-topic)
+
+
+  (stop! kafka-streams-app)
+
+
+  ;; the more complex willa example
 
   ;; Create the humble-donation-made topic
   (ja/create-topics! admin-client [humble-donation-made-topic])
@@ -356,6 +372,7 @@
   (ja/delete-topics! admin-client [purchase-made-topic
                                    large-transaction-made-topic])
   ())
+
 
 (comment
   (def a {:flight "UA1496"})
@@ -481,6 +498,7 @@
 
 
 
+; looks like some stuff pulled from Bryce Covert's SeaJure demo...
 (comment
 
   (defn req->open-request-ktable [req-events-stream]
