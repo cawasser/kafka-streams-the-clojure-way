@@ -12,14 +12,20 @@
             [clojure.spec.alpha :as s]))
 
 
+;; region - links to the source materials
+
 ;; see https://medium.com/funding-circle/kafka-streams-the-clojure-way-d62f6cefaba1
 
 ;; see also https://github.com/DaveWM/kafka-streams-the-clojure-way
 
 ;; see also https://github.com/DaveWM/willa
 
+;; endregion
 
-;; start kafka using one of the following:
+
+;; region - start kafka
+;;
+;; using one of the following:
 
 ; On Linux or Windows(?)
 ; docker run --rm --net=host landoop/fast-data-dev
@@ -39,8 +45,12 @@
 ;       AND have the ability to 'ctrl-C' to stop Kafka and Zookeeper,
 ;           instead if leaving them running inside Docker)
 ;
+;; endregion
 
 
+;; region - compiled code (see the rich comments below)
+
+;; region - defs and such
 ;; The config for our Kafka Streams app
 (def kafka-config
   {"application.id"            "kafka-streams-the-clojure-way"
@@ -79,6 +89,8 @@
 
 ;; An admin client is needed to do things like create and delete topics
 (def admin-client (ja/->AdminClient kafka-config))
+
+;; endregion
 
 
 ;; region Part 1 - Simple Topology
@@ -229,6 +241,10 @@
 ;; endregion
 
 
+;; endregion
+
+
+;; region - rich comments for the repl (run from HERE!!!!)
 (comment
 
   ;; region Part 1 - Simple Topology
@@ -373,7 +389,13 @@
                                    large-transaction-made-topic])
   ())
 
+;; endregion
 
+
+
+
+
+; comparing to Bryce Covert's examples
 (comment
   (def a {:flight "UA1496"})
   (def b [{:event-type          :departed
