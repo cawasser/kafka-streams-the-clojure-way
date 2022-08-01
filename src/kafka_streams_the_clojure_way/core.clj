@@ -9,7 +9,9 @@
             [willa.viz :as wv]
             [willa.experiment :as we]
             [willa.specs :as ws]
-            [clojure.spec.alpha :as s]))
+            [clojure.spec.alpha :as s])
+
+  (:import org.apache.kafka.streams.KafkaStreams))
 
 
 ;; region - links to the source materials
@@ -106,6 +108,8 @@
                                                               :amount   amount
                                                               :user-id  user-id
                                                               :quantity quantity}))))
+; producer.produce!(purchase-made-topic purchase-id {:id purchase-id})
+
 
 (defn view-messages
   "View the messages on the given topic"
@@ -305,16 +309,22 @@
 
   ;; region Part 3 - Willa
 
+  (ja/create-topics! admin-client [purchase-made-topic
+                                   large-transaction-made-topic])
+
 
   ;; Visualise the topology
   (wv/view-topology topology)
+  (wv/view-topology topology-2)
 
   ;; Start topology
   (def kafka-streams-app
     (let [builder (js/streams-builder)]
       (w/build-topology! builder topology)
-      (js/start (js/kafka-streams builder kafka-config))))
+      (doto (js/kafka-streams builder kafka-config)
+        (js/start))))
 
+  (def builder (js/streams-builder))
 
   (make-purchase! 500)
   (make-purchase! 50)
