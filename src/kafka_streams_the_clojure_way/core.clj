@@ -4,7 +4,7 @@
             [jackdaw.client.log :as jcl]
             [jackdaw.admin :as ja]
             [jackdaw.serdes.edn :refer [serde]]
-            [willa.streams :refer [transduce-stream]]
+            [willa.streams :as wstream]
             [willa.core :as w]
             [willa.viz :as wv]
             [willa.experiment :as we]
@@ -61,11 +61,13 @@
    "default.value.serde"       "jackdaw.serdes.EdnSerde"
    "cache.max.bytes.buffering" "0"})
 
+
 ;; Serdes tell Kafka how to serialize/deserialize messages
 ;; We'll just keep them as EDN
 (def serdes
   {:key-serde   (serde)
    :value-serde (serde)})
+
 
 ;; Each topic needs a config. The important part to note is the :topic-name key.
 (def purchase-made-topic
@@ -75,6 +77,7 @@
           :topic-config       {}}
     serdes))
 
+
 (def humble-donation-made-topic
   (merge {:topic-name         "humble-donation-made"
           :partition-count    1
@@ -82,12 +85,14 @@
           :topic-config       {}}
     serdes))
 
+
 (def large-transaction-made-topic
   (merge {:topic-name         "large-transaction-made"
           :partition-count    1
           :replication-factor 1
           :topic-config       {}}
     serdes))
+
 
 ;; An admin client is needed to do things like create and delete topics
 (def admin-client (ja/->AdminClient kafka-config))
@@ -162,7 +167,7 @@
 
 (defn simple-topology-with-transducer [builder]
   (-> (js/kstream builder purchase-made-topic)
-    (transduce-stream purchase-made-transducer)
+    (wstream/transduce-stream purchase-made-transducer)
     (js/to large-transaction-made-topic)))
 
 (def humble-donation-made-transducer
@@ -186,44 +191,25 @@
 (defn more-complicated-topology [builder]
   (js/merge
     (-> (js/kstream builder purchase-made-topic)
-      (transduce-stream purchase-made-transducer))
+      (wstream/transduce-stream purchase-made-transducer))
     (-> (js/kstream builder humble-donation-made-topic)
-      (transduce-stream humble-donation-made-transducer))))
+      (wstream/transduce-stream humble-donation-made-transducer))))
+
+
 ;; endregion
 
 ;; region Part 3 - Willa
 
 ; a simple example (matches "simple-topology" but using purchase-made-transducer
-(def entities
-  {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
-   :stream/large-purchase-made   {::w/entity-type :kstream
-                                  ::w/xform       purchase-made-transducer}
-   :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)})
 
-(def workflow
-  [[:topic/purchase-made :stream/large-purchase-made]
-   [:stream/large-purchase-made :topic/large-transaction-made]])
-
-
-(def topology {:entities entities
-               :workflow workflow})
+(def topology {:entities {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
+                          :stream/large-purchase-made   {::w/entity-type :kstream
+                                                         ::w/xform       purchase-made-transducer}
+                          :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)}
+               :workflow [[:topic/purchase-made :stream/large-purchase-made]
+                          [:stream/large-purchase-made :topic/large-transaction-made]]})
 
 ; slightly more complex
-(def entities-2
-  {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
-   :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
-   :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
-
-   :stream/large-purchase-made   {::w/entity-type :kstream
-                                  ::w/xform       purchase-made-transducer}
-   :stream/large-donation-made   {::w/entity-type :kstream
-                                  ::w/xform       humble-donation-made-transducer}})
-
-(def workflow-2
-  [[:topic/purchase-made :stream/large-purchase-made]
-   [:topic/humble-donation-made :stream/large-donation-made]
-   [:stream/large-purchase-made :topic/large-transaction-made]
-   [:stream/large-donation-made :topic/large-transaction-made]])
 
 (def topology-2
   {:entities {:topic/purchase-made          (assoc purchase-made-topic ::w/entity-type :topic)
@@ -456,7 +442,7 @@
          (condp = (:event kx)
            :add (conj starting-point (:content cx))
            :remove (disj starting-point (:content cx))))
-         
+
     [message-1 message-2 message-3 message-4])
 
   (reduce (fn [accum [kx cx]]
@@ -537,7 +523,7 @@
     (-> req-events-stream
       (j/filter (fn [[k v]]
                   (#{:request-added :request-deleted :request-updated :request-commited} (:event-type v))))
-      (j/group-by-key) ; key is requester's ID
+      (j/group-by-key)                                      ; key is requester's ID
       (j/aggregate (constantly #{})
         (fn [open-requests [_ event]]
           (cond-> open-requests
@@ -550,7 +536,7 @@
 
   (defn get-open-requests [streams]
     (-> streams
-        (.store "open-requests" (QueryableStoreTypes/keyValueStore))))
+      (.store "open-requests" (QueryableStoreTypes/keyValueStore))))
 
 
   (defn get-open-requests-by-id [streams id]
