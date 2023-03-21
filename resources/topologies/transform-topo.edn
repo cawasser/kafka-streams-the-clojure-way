@@ -1,0 +1,15 @@
+{:transform-topo {:entities {:topic/input  {:topic-name         :input-stream
+                                            :partition-count    1
+                                            :replication-factor 1
+                                            :topic-config       {}
+                                            :willa.core/entity-type     :topic}
+                             :stream/work  {:willa.core/entity-type :kstream
+                                            :willa.core/xform       :transducer}
+                             :topic/output {:topic-name         :output-stream
+                                            :partition-count    1
+                                            :replication-factor 1
+                                            :topic-config       {}
+                                            :willa.core/entity-type     :topic}}
+                  :workflow [[:topic/input :stream/work]
+                             [:stream/work :topic/output]]}}
+

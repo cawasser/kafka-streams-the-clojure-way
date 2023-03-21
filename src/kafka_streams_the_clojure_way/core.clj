@@ -9,7 +9,8 @@
             [willa.viz :as wv]
             [willa.experiment :as we]
             [willa.specs :as ws]
-            [clojure.spec.alpha :as s])
+            [clojure.spec.alpha :as s]
+            [kafka-streams-the-clojure-way.black-hammer.streams :as bh-streams])
 
   (:import org.apache.kafka.streams.KafkaStreams))
 
@@ -134,6 +135,22 @@
               [key (select-keys purchase [:amount :user-id])]))
     (js/to large-transaction-made-topic)))
 
+
+(comment
+  (-> [9857 {}]
+    (js/filter (fn [[_ purchase]]
+                 (<= 100 (:amount purchase))))
+    (js/map (fn [[key purchase]]
+              [key (select-keys purchase [:amount :user-id])])))
+
+
+
+  ())
+
+
+
+
+
 (defn start!
   "Starts the simple topology"
   []
@@ -161,9 +178,11 @@
 
   (comp
     (filter (fn [[_ purchase]]
-              (<= 100 (:amount purchase))))
+              (<= 95 (:amount purchase))))
     (map (fn [[key purchase]]
-           [key (select-keys purchase [:amount :user-id])]))))
+           [key (select-keys purchase [:user-id :amount])]))))
+
+(class purchase-made-transducer)
 
 (defn simple-topology-with-transducer [builder]
   (-> (js/kstream builder purchase-made-topic)
@@ -196,6 +215,14 @@
       (wstream/transduce-stream humble-donation-made-transducer))))
 
 
+(defn complex-start!
+  "Starts the simple topology"
+  []
+  (let [builder (js/streams-builder)]
+    (more-complicated-topology builder)
+    (doto (js/kafka-streams builder kafka-config)
+      (js/start))))
+
 ;; endregion
 
 ;; region Part 3 - Willa
@@ -216,9 +243,9 @@
               :topic/humble-donation-made   (assoc humble-donation-made-topic ::w/entity-type :topic)
               :topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
 
-              :stream/large-purchase-made   {::w/entity-type :kstream-channel
+              :stream/large-purchase-made   {::w/entity-type :kstream
                                              ::w/xform       purchase-made-transducer}
-              :stream/large-donation-made   {::w/entity-type :kstream-channel
+              :stream/large-donation-made   {::w/entity-type :kstream
                                              ::w/xform       humble-donation-made-transducer}}
 
    :workflow [[:topic/purchase-made :stream/large-purchase-made]
@@ -227,6 +254,81 @@
               [:stream/large-donation-made :topic/large-transaction-made]]
 
    :joins    {}})
+
+(def topology-3
+  {:entities {:topic/large-transaction-made (assoc large-transaction-made-topic ::w/entity-type :topic)
+              :topic/something-else         {:topic-name         "something-else"
+                                             :partition-count    1
+                                             :replication-factor 1
+                                             :topic-config       {}
+                                             :key-serde          (serde)
+                                             :value-serde        (serde)
+                                             ::w/entity-type     :topic}
+
+              :stream/something-else-fn     {::w/entity-type :kstream
+                                             ::w/xform       humble-donation-made-transducer}}
+
+   :workflow [[:topic/large-transaction-made :stream/something-else-fn]
+              [:stream/something-else-fn :topic/something-else]]
+
+   :joins    {}})
+
+(def topology-4
+  {:entities {:topic/input  {:topic-name         "input"
+                             :partition-count    1
+                             :replication-factor 1
+                             :topic-config       {}
+                             :key-serde          (serde)
+                             :value-serde        (serde)
+                             ::w/entity-type     :topic}
+              :topic/output {:topic-name         "output"
+                             :partition-count    1
+                             :replication-factor 1
+                             :topic-config       {}
+                             :key-serde          (serde)
+                             :value-serde        (serde)
+                             ::w/entity-type     :topic}
+
+              :stream/fn    {::w/entity-type :kstream
+                             ::w/xform       humble-donation-made-transducer}}
+
+   :workflow [[:topic/input :stream/fn]
+              [:stream/fn :topic/output]]
+
+   :joins    {}})
+
+
+
+
+(comment
+  (defn combine-topos [a b]
+    (let [entities (merge (:entities a) (:entities b))
+          workflow (concat (:workflow a) (:workflow b))]
+      {:entities entities :workflow workflow}))
+
+
+  (defn combine-topos-2 [& t]
+    (let [entities (reduce merge {} (map :entities t))
+          workflow (reduce concat [] (map :workflow t))]
+      {:entities entities :workflow workflow}))
+
+
+  (def t (list topology topology-2 topology-3 topology-4))
+
+  (map :entities t)
+
+  (reduce merge {} (map :entities t))
+  (reduce concat [] (map :workflow t))
+
+  (def merged-def (combine-topos-2 topology-2 topology-3))
+
+  (wv/view-topology topology-3)
+  (wv/view-topology topology-4)
+  (wv/view-topology merged-def)
+
+  (wv/view-topology (combine-topos-2 topology-2 topology-3 topology-4))
+
+  ())
 
 ;; endregion
 
@@ -271,6 +373,8 @@
 
   ;; Stop the topology
   (stop! kafka-streams-app)
+
+
   ;; endregion
 
   ;; region Part 2 - Transducers
@@ -282,7 +386,8 @@
     [[1 {:purchase-id 1 :user-id 2 :amount 10 :quantity 1}]
      [3 {:purchase-id 3 :user-id 4 :amount 500 :quantity 100}]
      [9 {:purchase-id 9 :user-id 4 :amount 5100 :quantity 100}]
-     [23 {:purchase-id 23 :user-id 4 :amount 5000 :quantity 100}]])
+     [23 {:purchase-id 23 :user-id 4 :amount 5000 :quantity 100}]
+     [23 {:purchase-id 23 :user-id 4 :amount 99 :quantity 100}]])
 
   (into []
     humble-donation-made-transducer
@@ -290,6 +395,17 @@
      [3 {:purchase-id 3 :user-id 4 :donation-amount-cents 5000 :quantity 100}]
      [9 {:purchase-id 9 :user-id 4 :donation-amount-cents 51000 :quantity 100}]
      [23 {:purchase-id 23 :user-id 4 :donation-amount-cents 50000 :quantity 100}]])
+
+  (ja/create-topics! admin-client [humble-donation-made-topic])
+
+  (def topo (complex-start!))
+  (stop! topo)
+
+  (make-humble-donation! 5000)
+  (make-purchase! 50)
+  (make-purchase! 1000)
+  (make-humble-donation! 15000)
+
 
   ;; endregion
 
@@ -323,6 +439,9 @@
   (stop! kafka-streams-app)
 
 
+  (= {:user-id 4, :amount 500}
+    {:amount 500 :user-id 4})
+
   ;; the more complex willa example
 
   ;; Create the humble-donation-made topic
@@ -333,6 +452,12 @@
   (make-purchase! 200)
   (make-humble-donation! 5000)
   (make-humble-donation! 15000)
+
+  (def kafka-streams-app
+    (let [builder (js/streams-builder)]
+      (w/build-topology! builder topology-2)
+      (doto (js/kafka-streams builder kafka-config)
+        (js/start))))
 
   ;; Check that messages appear on the large-transaction-made output topics
   (view-messages large-transaction-made-topic)
@@ -385,9 +510,79 @@
                                    large-transaction-made-topic])
   ())
 
+
+; experiment with a "real"  streaming topologies (microservices)
+(comment
+  (do
+    (bh-streams/activate-registry "./resources/topologies/")
+
+    (def purchase-made-transducer
+      (comp
+        (filter (fn [[_ purchase]]
+                  (<= 100 (:amount purchase))))
+        (map (fn [[key purchase]]
+               [key (select-keys purchase [:user-id :amount])]))))
+
+
+    (def large-purchase {:pattern     :transform-topo
+                         :substitutes [[[:topic/input :topic-name] "purchase-made"]
+                                       [[:stream/work ::w/xform] purchase-made-transducer]
+                                       [[:topic/output :topic-name] "large-purchase-made"]]
+                         :rename      {:topic/input  :topic/purchase-made
+                                       :stream/work  :stream/large-purchase
+                                       :topic/output :topic/large-purchase-made}}))
+
+
+  bh-streams/topo-reg
+
+  (bh-streams/start-topo! large-purchase)
+
+
+
+  (defn -main [topo-filename]
+    (bh-streams/start-topo! (load topo-filename)))
+
+
+  ())
+
 ;; endregion
 
 
+;; region ; experiment with Sensor-Allocation implementation (multiple streaming microservices)
+(comment
+  (do
+    (def default-transducer
+      (map (fn [[k v]]
+             [k v])))
+
+
+    (def aoi-updates {:pattern     :transform-topo
+                      :substitutes [[[:topic/input :topic-name] "aoi-update"]
+                                    [[:stream/work ::w/xform] default-transducer]
+                                    [[:topic/output :topic-name] "aoi-state"]]
+                      :rename      {:topic/input  :topic/aoi-update
+                                    :stream/work  :stream/aoi-updates
+                                    :topic/output :topic/aoi-state}})
+
+    (def sensor-allocation {:pattern     :transform-topo
+                            :substitutes [[[:topic/input :topic-name] "aoi-state"]
+                                          [[:stream/work ::w/xform] default-transducer]
+                                          [[:topic/output :topic-name] "sensor-allocations"]]
+                            :rename      {:topic/input  :topic/aoi-state
+                                          :stream/work  :stream/sensor-allocation
+                                          :topic/output :topic/sensor-allocations}}))
+
+
+  (bh-streams/activate-registry "./resources/topologies/")
+  (wv/view-topology
+    (bh-streams/combine-topos
+      (bh-streams/compile-topo aoi-updates)
+      (bh-streams/compile-topo sensor-allocation)))
+
+
+  ())
+
+;; endregion
 
 
 
